@@ -43,6 +43,14 @@ flowchart TD
 
 ---
 
+## 📋 Requirements
+
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
+- Python 3.x (for `deploy.py`)
+- [LM Studio](https://lmstudio.ai/) (or any MCP-compatible client)
+
+---
+
 ## 🚀 Quick Start
 
 #### 1️⃣ Create `.env`
@@ -178,8 +186,4 @@ python3 deploy.py --start
     └── settings.yml       # SearXNG engine configuration
 ```
 
-## Requirements
 
-- Docker
-- Docker Compose
-- Python 3 (for `deploy.py` only)
