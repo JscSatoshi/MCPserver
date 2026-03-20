@@ -48,6 +48,7 @@ services:
     working_dir: /app
     volumes:
       - ./mcp/server.py:/app/server.py:ro
+      - ./mcp/web_core.py:/app/web_core.py:ro
     depends_on:
       searxng:
         condition: service_healthy

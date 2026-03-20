@@ -222,28 +222,6 @@ outgoing:
 
 # Plugin configuration, for more details see
 #   https://docs.searxng.org/admin/settings/settings_plugins.html
-#
-# Engines that fail to init or are unreliable in Docker
-engines:
-  - name: radio browser
-    engine: radio_browser
-    inactive: true
-
-  - name: ahmia
-    engine: ahmia
-    inactive: true
-
-  - name: torch
-    engine: torch
-    inactive: true
-
-  - name: yep
-    engine: yep
-    inactive: true
-
-  - name: startpage
-    engine: startpage
-    inactive: true
 
 plugins:
 

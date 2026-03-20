@@ -87,6 +87,7 @@ Endpoint: `localhost:3000/sse`
 | 📸 `screenshot` | Capture a screenshot of a page (returned as image). |
 | 🔗 `extract_links` | Extract all hyperlinks from a page. |
 | ✂️ `extract_text` | Extract text from a specific CSS selector on a page. |
+| 📰 `headlines` | Extract all headings (h1–h6) from a page. |
 
 <details>
 <summary>📋 <code>search</code> parameters</summary>
@@ -140,7 +141,7 @@ docker logs -f mcp        # MCP server
 ## 🔄 Update server.py without rebuilding
 
 > [!TIP]
-> `server.py` is mounted as a volume — code changes take effect with a simple restart, no rebuild needed.
+> `server.py` and `web_core.py` are mounted as volumes — code changes take effect with a simple restart, no rebuild needed.
 
 ```bash
 docker restart mcp
@@ -172,7 +173,8 @@ python3 deploy.py --rebuild
 ├── docker-compose.yml     # Container orchestration
 ├── .env                   # SEARXNG_SECRET (create manually)
 ├── mcp/
-│   ├── server.py          # Unified MCP server (SearXNG + Playwright)
+│   ├── server.py          # MCP tools (FastMCP adapter)
+│   ├── web_core.py        # Shared browser + search core
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .dockerignore
