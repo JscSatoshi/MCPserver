@@ -1,9 +1,9 @@
 <div align="center">
 
-# 🔍 LMStudio MCP
+# 🔍 MCP Web Search Server
 
-**Docker-based MCP server for LM Studio**
-*Web search + headless browser in a single service*
+**Docker-based MCP server — web search + headless browser**
+*Works with any MCP-compatible LLM client*
 
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-SSE-8A2BE2)
@@ -18,13 +18,14 @@
 
 ```mermaid
 flowchart TD
-    LMS["🖥️ LM Studio (your machine)"]
-    LMS <-->|"SSE :3000"| MCP
+    Client[MCP Client - your machine]
+    Client -->|SSE :3000| MCP
+    MCP -->|SSE :3000| Client
 
-    subgraph Docker["🐳 Docker"]
-        MCP["⚡ MCP Server :3000"]
-        SearX["🔎 SearXNG :8081"]
-        Chrome["🌐 Chromium headless"]
+    subgraph Docker[Docker]
+        MCP[MCP Server :3000]
+        SearX[SearXNG :8081]
+        Chrome[Chromium headless]
         MCP -->|search| SearX
         MCP -->|browse| Chrome
     end
@@ -33,7 +34,7 @@ flowchart TD
     style MCP fill:#313244,stroke:#a6e3a1,color:#a6e3a1
     style SearX fill:#313244,stroke:#f9e2af,color:#f9e2af
     style Chrome fill:#313244,stroke:#89b4fa,color:#89b4fa
-    style LMS fill:#313244,stroke:#cba6f7,color:#cba6f7
+    style Client fill:#313244,stroke:#cba6f7,color:#cba6f7
 ```
 
 | Service | Port | Description |
@@ -47,7 +48,7 @@ flowchart TD
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose
 - Python 3.x (for `deploy.py`)
-- [LM Studio](https://lmstudio.ai/) (or any MCP-compatible client)
+- Any MCP-compatible client (LM Studio, Claude Desktop, Cursor, Continue, etc.)
 
 ---
 
@@ -65,20 +66,12 @@ echo "SEARXNG_SECRET=$(openssl rand -hex 32)" > .env
 python3 deploy.py --start
 ```
 
-#### 3️⃣ Configure LM Studio
+#### 3️⃣ Connect your MCP client
 
-```json
-{
-  "mcpServers": {
-    "web": {
-      "url": "http://localhost:3000/sse"
-    }
-  }
-}
-```
+Point any MCP-compatible client to: `http://localhost:3000/sse`
 
 > [!WARNING]
-> **After restarting the MCP container**, disconnect and reconnect the MCP server in LM Studio to avoid `-32602 Invalid request parameters` session errors.
+> **After restarting the MCP container**, reconnect the MCP server in your client to avoid `-32602 Invalid request parameters` session errors.
 
 ---
 
@@ -126,10 +119,11 @@ Endpoint: `localhost:3000/sse`
 ## 📦 Commands
 
 ```bash
-python3 deploy.py --start          # 🟢 Build images, start containers
-python3 deploy.py --stop           # 🔴 Stop and remove containers
-python3 deploy.py --logs           # 📜 Stream logs (Enter/Space to stop)
-python3 deploy.py --start --logs   # 🟢📜 Start + stream logs
+python3 deploy.py --start            # 🟢 Start containers (skips build if image exists)
+python3 deploy.py --rebuild          # 🔨 Force rebuild MCP image, then start
+python3 deploy.py --stop             # 🔴 Stop and remove containers
+python3 deploy.py --logs             # 📜 Stream logs (Enter/Space to stop)
+python3 deploy.py --start --logs     # 🟢📜 Start + stream logs
 ```
 
 ---
@@ -149,13 +143,13 @@ docker logs -f mcp        # MCP server
 > `server.py` is mounted as a volume — code changes take effect with a simple restart, no rebuild needed.
 
 ```bash
-docker-compose restart mcp
+docker restart mcp
 ```
 
-Only rebuild when `requirements.txt` changes:
+Only rebuild when `Dockerfile` or `requirements.txt` changes:
 
 ```bash
-python3 deploy.py --start
+python3 deploy.py --rebuild
 ```
 
 ---
@@ -166,8 +160,8 @@ python3 deploy.py --start
 |:---------|:-------:|:------------|
 | `SEARXNG_URL` | `http://searxng:8080` | Internal SearXNG endpoint |
 | `SEARXNG_TIMEOUT` | `15` | HTTP timeout (seconds) |
-| `PAGE_TIMEOUT` | `10000` | Playwright navigation timeout (ms) |
-| `FETCH_CONCURRENCY` | `8` | Parallel page fetches in `deep_search` |
+| `PAGE_TIMEOUT` | `15000` | Playwright navigation timeout (ms) |
+| `FETCH_CONCURRENCY` | `5` | Parallel page fetches in `deep_search` |
 
 > The MCP container is configured with `shm_size: 512m` to give Chromium enough shared memory. The Docker default (64 MB) causes renderer crashes.
 

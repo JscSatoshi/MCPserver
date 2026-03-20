@@ -177,7 +177,14 @@ def do_pull(dc: list[str]) -> None:
             warn(f"Pull failed for {image}. Docker will retry during 'up'.")
 
 
-def do_build(dc: list[str]) -> None:
+MCP_IMAGE = "mcp-web-search:latest"
+
+
+def do_build(dc: list[str], force: bool = False) -> bool:
+    """Returns True if a build was performed, False if skipped."""
+    if not force and image_exists(MCP_IMAGE):
+        ok(f"{MCP_IMAGE} already exists — skipping build.  (use --rebuild to force)")
+        return False
     print("  building MCP service images...")
     compose_with_env(
         "build",
@@ -185,6 +192,7 @@ def do_build(dc: list[str]) -> None:
         dc=dc,
         env={"DOCKER_BUILDKIT": "0"},
     )
+    return True
 
 
 # Base images only needed at build time — safe to remove after build
@@ -271,6 +279,8 @@ def _stream_logs(dc: list[str]) -> None:
     stop = threading.Event()
 
     def _watch_key():
+        if not sys.stdin.isatty():
+            return  # non-TTY stdin (piped/redirected) — skip raw-mode key listener
         fd  = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
@@ -308,9 +318,10 @@ def main() -> None:
             "  python3 deploy.py --logs       stream logs after startup\n"
         ),
     )
-    parser.add_argument("--start", action="store_true", help="Start containers in background")
-    parser.add_argument("--stop",  action="store_true", help="Stop and remove all containers")
-    parser.add_argument("--logs",  action="store_true", help="Stream container logs after startup")
+    parser.add_argument("--start",   action="store_true", help="Start containers in background")
+    parser.add_argument("--stop",    action="store_true", help="Stop and remove all containers")
+    parser.add_argument("--logs",    action="store_true", help="Stream container logs after startup")
+    parser.add_argument("--rebuild", action="store_true", help="Force rebuild of MCP image even if it already exists")
     args = parser.parse_args()
 
     dc = find_compose()
@@ -327,6 +338,10 @@ def main() -> None:
         _stream_logs(dc)
         return
 
+    # --rebuild implies --start
+    if args.rebuild:
+        args.start = True
+
     # --- Require an explicit flag -------------------------------------------
     if not args.start:
         parser.print_help()
@@ -340,8 +355,9 @@ def main() -> None:
     do_pull(dc)
 
     step(3, 4, "Building MCP images")
-    do_build(dc)
-    _cleanup_base_images()
+    built = do_build(dc, force=args.rebuild)
+    if built:
+        _cleanup_base_images()
 
     step(4, 4, "Launching containers")
     do_launch(dc, detach=True)

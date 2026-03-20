@@ -32,7 +32,7 @@ services:
   mcp:
     build:
       context: ./mcp
-    image: lmstudio-mcp:latest
+    image: mcp-web-search:latest
     container_name: mcp
     shm_size: "512m"
     ports:
