@@ -36,13 +36,13 @@ services:
     container_name: mcp
     shm_size: "512m"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
       - MCP_PORT=3000
       - SEARXNG_URL=http://searxng:8080
-      - SEARXNG_TIMEOUT=15
+      - SEARXNG_TIMEOUT=25
       - PAGE_TIMEOUT=15000
       - FETCH_CONCURRENCY=5
     working_dir: /app

@@ -2,6 +2,7 @@
 
 import os
 from contextlib import asynccontextmanager
+from datetime import date
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.types import Image
@@ -20,9 +21,12 @@ async def _lifespan(app):
 # ---------------------------------------------------------------------------
 # MCP server
 # ---------------------------------------------------------------------------
+_today = date.today().strftime("%Y-%m-%d")
+
 mcp = FastMCP(
     name="web",
     instructions=(
+        f"Today's date: {_today}\n"
         "You have web tools. Pick the RIGHT tool for each request:\n"
         "- search(query)       → DEFAULT tool for web searches. Returns titles, URLs, and snippets fast (~1s). Use this first.\n"
         "- deep_search(query)  → Use when you need full page content, not just snippets. Slower (reads pages with a browser).\n"
@@ -30,6 +34,10 @@ mcp = FastMCP(
         "- navigate(url)       → user wants the text content of a specific URL (set format='html' for raw HTML source)\n"
         "- extract_links(url)  → user wants all hyperlinks from a page\n"
         "- extract_text(url, selector) → user wants text from a specific part of a page\n\n"
+        "TIPS for better results:\n"
+        "- For RECENT or CURRENT topics (news, prices, events, releases), ALWAYS set time_range='week' or 'month'\n"
+        "- Use categories='news' for current events, 'it' for programming, 'science' for academic\n"
+        "- Set language explicitly (e.g. 'zh', 'ja') if the user's query language differs from the desired result language\n\n"
         "IMPORTANT: When the user says 'screenshot', 'capture', 'show me', or 'what does X look like', "
         "ALWAYS use the screenshot tool — do NOT use search."
     ),
@@ -45,6 +53,7 @@ async def search(
     categories: str = "general",
     language: str = "auto",
     safe_search: int = 0,
+    time_range: str = "",
     max_results: int = 10,
 ) -> str:
     """
@@ -56,6 +65,7 @@ async def search(
         categories:  SearXNG categories: general, news, science, images, videos, it, etc.
         language:    Language code (e.g. 'en', 'zh') or 'auto'.
         safe_search: 0 = off, 1 = moderate, 2 = strict.
+        time_range:  Time filter: '' (any time), 'day', 'week', 'month', 'year'.
         max_results: Number of results to return (1–20). Default 10.
     """
     try:
@@ -64,11 +74,13 @@ async def search(
             categories=categories,
             language=language,
             safe_search=safe_search,
+            time_range=time_range,
             max_results=max_results,
         )
         results = data.get("results", [])
     except Exception as exc:
-        return f"Search failed: {exc}"
+        err = f"{type(exc).__name__}: {exc}".rstrip(": ")
+        return f"Search failed: {err}"
 
     if not results:
         return "No search results found."
@@ -95,6 +107,7 @@ async def deep_search(
     categories: str = "general",
     language: str = "auto",
     safe_search: int = 0,
+    time_range: str = "",
     max_results: int = 3,
 ) -> str:
     """
@@ -106,7 +119,8 @@ async def deep_search(
         categories:  SearXNG categories: general, news, science, etc.
         language:    Language code (e.g. 'en', 'zh') or 'auto'.
         safe_search: 0 = off, 1 = moderate, 2 = strict.
-        max_results: Pages to fetch and read (1–5). Default 3. Higher = slower.
+        time_range:  Time filter: '' (any time), 'day', 'week', 'month', 'year'.
+        max_results: Pages to fetch and read (1–10). Default 3. Higher = slower.
     """
     try:
         data = await core.deep_search(
@@ -114,11 +128,13 @@ async def deep_search(
             categories=categories,
             language=language,
             safe_search=safe_search,
+            time_range=time_range,
             max_results=max_results,
         )
         pages = data.get("pages", [])
     except Exception as exc:
-        return f"Search failed: {exc}"
+        err = f"{type(exc).__name__}: {exc}".rstrip(": ")
+        return f"Search failed: {err}"
 
     if not pages:
         return "No search results found."

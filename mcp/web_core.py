@@ -18,9 +18,9 @@ from playwright.async_api import Browser, BrowserContext, Playwright, async_play
 @dataclass
 class CoreConfig:
     searxng_url: str = os.environ.get("SEARXNG_URL", "http://localhost:8081").rstrip("/")
-    searxng_timeout: float = float(os.environ.get("SEARXNG_TIMEOUT", "15"))
-    page_timeout: int = int(os.environ.get("PAGE_TIMEOUT", "10000"))
-    fetch_concurrency: int = int(os.environ.get("FETCH_CONCURRENCY", "8"))
+    searxng_timeout: float = float(os.environ.get("SEARXNG_TIMEOUT", "25"))
+    page_timeout: int = int(os.environ.get("PAGE_TIMEOUT", "15000"))
+    fetch_concurrency: int = int(os.environ.get("FETCH_CONCURRENCY", "5"))
     allow_private_network: bool = os.environ.get("ALLOW_PRIVATE_NETWORK", "false").lower() == "true"
 
 
@@ -29,6 +29,9 @@ class WebCore:
 
     _GENERAL_ENGINES = "bing,duckduckgo,brave,yahoo,mojeek,wikipedia"
     _NEWS_ENGINES = "bing news,duckduckgo news,yahoo news,brave news,wikinews"
+    _IT_ENGINES = "bing,duckduckgo,brave,stackoverflow,github,arch linux wiki"
+    _SCIENCE_ENGINES = "bing,duckduckgo,brave,arxiv,wikipedia"
+    _VALID_TIME_RANGES = {"", "day", "week", "month", "year"}
     _ALLOWED_SCHEMES = {"http", "https"}
     _BLOCKED_HOSTS = {"localhost", "127.0.0.1", "::1"}
     _BLOCK_TYPES = {"image", "media", "font", "stylesheet", "ping", "websocket", "manifest", "other"}
@@ -64,22 +67,25 @@ class WebCore:
         language: str = "auto",
         safe_search: int = 0,
         page: int = 1,
+        time_range: str = "",
         max_results: int = 10,
     ) -> dict[str, Any]:
         max_results = max(1, min(max_results, 20))
         if language == "auto":
             language = self._detect_lang(query)
-        data = await self._searxng_query_with_retry(
-            {
-                "q": query,
-                "categories": categories,
-                "language": language,
-                "safesearch": safe_search,
-                "pageno": page,
-            },
-            category=categories,
-        )
-        results = self._dedup(data.get("results", []))[:max_results]
+        params: dict[str, Any] = {
+            "q": query,
+            "categories": categories,
+            "language": language,
+            "safesearch": safe_search,
+            "pageno": page,
+        }
+        if time_range in self._VALID_TIME_RANGES and time_range:
+            params["time_range"] = time_range
+        data = await self._searxng_query_with_retry(params, category=categories)
+        results = self._dedup(data.get("results", []))
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        results = results[:max_results]
         unresponsive = data.get("unresponsive_engines", [])
         payload: dict[str, Any] = {
             "query": query,
@@ -106,23 +112,27 @@ class WebCore:
         categories: str = "general",
         language: str = "auto",
         safe_search: int = 0,
+        time_range: str = "",
         max_results: int = 5,
     ) -> dict[str, Any]:
         max_results = max(1, min(max_results, 10))
         if language == "auto":
             language = self._detect_lang(query)
 
-        data = await self._searxng_query_with_retry(
-            {
-                "q": query,
-                "categories": categories,
-                "language": language,
-                "safesearch": safe_search,
-            },
-            category=categories,
-        )
+        params: dict[str, Any] = {
+            "q": query,
+            "categories": categories,
+            "language": language,
+            "safesearch": safe_search,
+        }
+        if time_range in self._VALID_TIME_RANGES and time_range:
+            params["time_range"] = time_range
+        data = await self._searxng_query_with_retry(params, category=categories)
 
-        results = self._dedup(data.get("results", []))[:max_results]
+        # Rank by score, pick top N
+        results = self._dedup(data.get("results", []))
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        results = results[:max_results]
         if not results:
             return {"query": query, "pages": []}
 
@@ -161,8 +171,8 @@ class WebCore:
                 await page.close()
 
         text = await self._page_text(url, 20000, wait_until)
-        if text.startswith("[fetch error:"):
-            return {"url": url, "error": text[13:].strip(" []")}
+        if text.startswith("[fetch error:") and text.endswith("]"):
+            return {"url": url, "error": text[len("[fetch error: "):-1]}
         return {"url": url, "content": text, "format": "text"}
 
     async def extract_text(
@@ -225,8 +235,8 @@ class WebCore:
     async def screenshot(self, url: str, full_page: bool = False) -> bytes:
         if err := self.validate_url(url):
             raise RuntimeError(f"Blocked URL: {err}")
-        browser = await self._get_browser()
-        page = await browser.new_page(viewport={"width": 1280, "height": 720})
+        ctx = await self._get_context()
+        page = await ctx.new_page(viewport={"width": 1280, "height": 720})
         try:
             try:
                 await page.goto(url, wait_until="load", timeout=self.config.page_timeout)
@@ -269,6 +279,12 @@ class WebCore:
         return None
 
     async def _warmup_browser(self) -> None:
+        if self._context is not None:
+            try:
+                await self._context.close()
+            except Exception:
+                pass
+            self._context = None
         if self._browser is not None:
             try:
                 await self._browser.close()
@@ -332,9 +348,26 @@ class WebCore:
 
     async def _searxng_query(self, params: dict[str, Any]) -> dict[str, Any]:
         params.setdefault("format", "json")
-        resp = await self._get_http_client().get("/search", params=params)
-        resp.raise_for_status()
-        return resp.json()
+        for attempt in range(2):
+            try:
+                resp = await self._get_http_client().get("/search", params=params)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.ReadError:
+                # Stale keep-alive connection — close the pool and retry once
+                if attempt == 1:
+                    raise
+                if self._http_client and not self._http_client.is_closed:
+                    await self._http_client.aclose()
+                self._http_client = None
+        raise RuntimeError("_searxng_query: unreachable")
+
+    def _engines_for_category(self, category: str) -> str:
+        return {
+            "news": self._NEWS_ENGINES,
+            "it": self._IT_ENGINES,
+            "science": self._SCIENCE_ENGINES,
+        }.get(category, self._GENERAL_ENGINES)
 
     async def _searxng_query_with_retry(self, params: dict[str, Any], category: str = "general") -> dict[str, Any]:
         data = await self._searxng_query(params)
@@ -342,19 +375,42 @@ class WebCore:
         if results:
             return data
 
-        engines = self._NEWS_ENGINES if category == "news" else self._GENERAL_ENGINES
+        # Retry 1: explicit engines for this category
+        engines = self._engines_for_category(category)
         retry_params = {**params, "engines": engines}
         retry_params.pop("categories", None)
-        return await self._searxng_query(retry_params)
+        data = await self._searxng_query(retry_params)
+        if data.get("results"):
+            return data
+
+        # Retry 2: broaden language to "all"
+        if retry_params.get("language", "all") != "all":
+            retry_params["language"] = "all"
+            data = await self._searxng_query(retry_params)
+
+        return data
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Normalize URL for dedup: strip scheme, www, trailing slash."""
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = parsed.path.rstrip("/")
+        return f"{host}{path}"
 
     def _dedup(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()
         out: list[dict[str, Any]] = []
         for item in results:
             url = item.get("url", "")
-            if url and url in seen:
+            if not url:
                 continue
-            seen.add(url)
+            key = self._normalize_url(url)
+            if key in seen:
+                continue
+            seen.add(key)
             out.append(item)
         return out
 
@@ -393,16 +449,17 @@ class WebCore:
 
         for attempt in range(2):
             ctx = await self._get_context()
+            page = None
             try:
                 page = await ctx.new_page()
                 await page.route("**/*", _block)
                 return page
             except Exception:
+                if page:
+                    await page.close()
                 self._context = None
                 if attempt == 1:
                     raise
-
-        raise RuntimeError("Failed to create page")
 
     async def _page_text(self, url: str, limit: int, wait_until: str = "domcontentloaded") -> str:
         page = None
